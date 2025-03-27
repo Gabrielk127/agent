@@ -13,13 +13,9 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from bs4 import BeautifulSoup
 from GEMINI_KEY import GEMINI_API_KEY
 
-# Configura a API Key do Gemini
 os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
-
-# Inicializa o modelo do Gemini
 chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.7)
 
-# Função para carregar histórico de conversa
 def load_history():
     try:
         with open("chat_history.json", "r") as file:
@@ -29,20 +25,22 @@ def load_history():
                 else AIMessage(content=msg["content"]) 
                 for msg in history_data
             ]
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Erro ao carregar histórico: {e}")
         return []
 
-# Função para salvar histórico de conversa
 def save_history(history):
-    with open("chat_history.json", "w") as file:
-        json.dump(
-            [{"role": "user" if isinstance(msg, HumanMessage) else "assistant", "content": msg.content}
-             for msg in history],
-            file,
-            indent=4
-        )
+    try:
+        with open("chat_history.json", "w") as file:
+            json.dump(
+                [{"role": "user" if isinstance(msg, HumanMessage) else "assistant", "content": msg.content}
+                 for msg in history],
+                file,
+                indent=4
+            )
+    except Exception as e:
+        print(f"Erro ao salvar histórico: {e}")
 
-# Função para carregar dados de treinamento pré-definidos
 def load_training_data(training_file="training_data.json"):
     try:
         with open(training_file, "r", encoding="utf-8") as file:
@@ -54,7 +52,6 @@ def load_training_data(training_file="training_data.json"):
         print("⚠️ Erro ao ler o arquivo JSON! Verifique a formatação.")
         return {"content": "Agente sem treinamento válido."}
 
-# Função para extrair texto de um PDF
 def extract_text_from_pdf(pdf_path):
     try:
         return extract_text(pdf_path)
@@ -62,7 +59,6 @@ def extract_text_from_pdf(pdf_path):
         print(f"Erro ao extrair texto do PDF: {e}")
         return ""
 
-# Função para gerar um arquivo Markdown
 def generate_markdown_report(content, output_path="analysis_report.md"):
     try:
         with open(output_path, "w", encoding="utf-8") as file:
@@ -71,24 +67,17 @@ def generate_markdown_report(content, output_path="analysis_report.md"):
     except Exception as e:
         print(f"Erro ao gerar o arquivo Markdown: {e}")
 
-
-# Função para converter Markdown em PDF com espaçamento entre tópicos
-
 def convert_md_to_pdf(md_path, pdf_path="analysis_report.pdf"):
     try:
-        # Lê o conteúdo markdown
         with open(md_path, "r", encoding="utf-8") as file:
             md_content = file.read()
 
-        # Converte Markdown para HTML
         html_content = markdown.markdown(md_content)
         soup = BeautifulSoup(html_content, "html.parser")
 
-        # Configuração do PDF com margens e estrutura organizada
         doc = SimpleDocTemplate(pdf_path, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=60, bottomMargin=40)
         story = []
         
-        # Criando estilos personalizados
         styles = getSampleStyleSheet()
         
         title_style = ParagraphStyle(
@@ -98,7 +87,7 @@ def convert_md_to_pdf(md_path, pdf_path="analysis_report.pdf"):
             fontSize=20,
             textColor=colors.darkblue,
             spaceAfter=15,
-            alignment=1,  # Centralizado
+            alignment=1,
         )
 
         section_title_style = ParagraphStyle(
@@ -131,15 +120,13 @@ def convert_md_to_pdf(md_path, pdf_path="analysis_report.pdf"):
             spaceAfter=8,
         )
 
-        # Adicionando título principal
         story.append(Paragraph("📌 Análise de Business Model Canvas", title_style))
-        story.append(Spacer(1, 20))  # Espaçamento abaixo do título
+        story.append(Spacer(1, 20))
 
-        # Processando os elementos do Markdown
         for elem in soup.find_all(["h1", "h2", "p", "ul"]):
             if elem.name == "h1":
                 story.append(Paragraph(elem.get_text(), section_title_style))
-                story.append(Spacer(1, 10))  # Espaço extra abaixo do título
+                story.append(Spacer(1, 10))
 
             elif elem.name == "h2":
                 story.append(Paragraph(elem.get_text(), section_title_style))
@@ -153,7 +140,6 @@ def convert_md_to_pdf(md_path, pdf_path="analysis_report.pdf"):
                 items = [ListItem(Paragraph(li.get_text(), bullet_style)) for li in elem.find_all("li")]
                 story.append(ListFlowable(items, bulletType="bullet"))
 
-        # Criando um rodapé estilizado
         def footer(canvas, doc):
             canvas.saveState()
             footer_text = "📄 Relatório gerado automaticamente - Aurora Tech"
@@ -161,29 +147,64 @@ def convert_md_to_pdf(md_path, pdf_path="analysis_report.pdf"):
             canvas.drawRightString(540, 20, footer_text)
             canvas.restoreState()
 
-        # Criando template para incluir rodapé
         frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height - 40, id="normal")
         template = PageTemplate(id="report", frames=frame, onPage=footer)
         doc.addPageTemplates([template])
 
-        # Construindo o PDF
         doc.build(story)
         print(f"✅ PDF gerado com sucesso: {pdf_path}")
 
     except Exception as e:
         print(f"Erro ao converter Markdown para PDF: {e}")
 
-# Inicializa o agente Gemini com dados de treinamento
+def get_pdfs_from_folder(folder_path):
+    try:
+        return [f for f in os.listdir(folder_path) if f.endswith(".pdf")]
+    except FileNotFoundError:
+        print(f"⚠️ A pasta {folder_path} não foi encontrada!")
+        return []
+
+def correct_pdfs_in_folder(chat_model, chat_history, folder_path, output_folder):
+    try:
+        os.makedirs(output_folder, exist_ok=True)
+        pdfs = get_pdfs_from_folder(folder_path)
+        if not pdfs:
+            print("⚠️ Nenhum PDF encontrado na pasta especificada.")
+            return
+        
+        for pdf_file in pdfs:
+            pdf_path = os.path.join(folder_path, pdf_file)
+            print(f"📘 Analisando o PDF: {pdf_file}")
+            
+            extracted_text = extract_text_from_pdf(pdf_path)
+            if extracted_text:
+                print(f"Analisando conteúdo de {pdf_file}...")
+                analysis_result = analyze_content_with_agent(chat_model, chat_history, extracted_text)
+                
+                md_path = f"analysis_report_{pdf_file.replace('.pdf', '.md')}"
+                generate_markdown_report(analysis_result, md_path)
+
+                corrected_pdf_path = os.path.join(output_folder, pdf_file.replace(".pdf", "_analysis.pdf"))
+                convert_md_to_pdf(md_path, corrected_pdf_path)
+                print(f"✅ Relatório gerado para {pdf_file}!\n")
+            else:
+                print(f"⚠️ Não foi possível extrair o texto de {pdf_file}.")
+    except Exception as e:
+        print(f"Erro ao corrigir os PDFs: {e}")
+
 def initialize_agent():
-    chat_history = load_history()
-    training_data = load_training_data()
+    try:
+        chat_history = load_history()
+        training_data = load_training_data()
 
-    if not any(msg.content == training_data["content"] for msg in chat_history):
-        chat_history.insert(0, AIMessage(content=training_data["content"]))
+        if not any(msg.content == training_data["content"] for msg in chat_history):
+            chat_history.insert(0, AIMessage(content=training_data["content"]))
 
-    return chat_model, chat_history
+        return chat_model, chat_history
+    except Exception as e:
+        print(f"Erro ao inicializar o agente: {e}")
+        return chat_model, []
 
-# Análise de conteúdo com o agente
 def analyze_content_with_agent(chat_model, chat_history, content):
     try:
         chat_history.append(HumanMessage(content=content))
@@ -198,6 +219,9 @@ def main():
 
     print("🤖 Chatbot Gemini - Análise de Business Model Canvas (digite 'sair' para encerrar)")
 
+    folder_path = r"C:\Users\Gabriel Fernandes\Desktop\PROJETOS\Agent\LangChain\Gemini\pdfs"
+    output_folder = r"C:\Users\Gabriel Fernandes\Desktop\PROJETOS\Agent\LangChain\Gemini\pdfs\correcoes"
+
     while True:
         user_input = input("Você: ")
 
@@ -206,7 +230,11 @@ def main():
             save_history(chat_history)
             break
 
-        if user_input.endswith(".pdf"):
+        if user_input.lower() == "corrigir pdfs":
+            print(f"Iniciando correção de todos os PDFs na pasta '{folder_path}'...")
+            correct_pdfs_in_folder(chat_model, chat_history, folder_path, output_folder)
+
+        elif user_input.endswith(".pdf"):
             extracted_text = extract_text_from_pdf(user_input)
             if extracted_text:
                 print("📘 PDF carregado com sucesso!")
