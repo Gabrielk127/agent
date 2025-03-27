@@ -1,3 +1,6 @@
 .qodo
 .env
 GEMINI_KEY.py
+chat_history.json
+analysis_report.md
+analysis_report.pdf
